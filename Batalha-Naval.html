@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Batalha Naval</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Orbitron', sans-serif;
+            background-color: #0d1b2a;
+            color: #e0e1dd;
+        }
+        .board {
+            display: grid;
+            grid-template-columns: repeat(10, 1fr);
+            grid-template-rows: repeat(10, 1fr);
+            width: 90vw;
+            height: 90vw;
+            max-width: 450px;
+            max-height: 450px;
+            background-color: rgba(23, 76, 115, 0.2);
+            border: 2px solid #415a77;
+            border-radius: 8px;
+            box-shadow: 0 0 20px rgba(0, 191, 255, 0.3);
+        }
+        .square {
+            border: 1px solid #1b263b;
+            position: relative;
+            transition: background-color 0.2s;
+        }
+        .player-board .square:hover {
+            background-color: rgba(255, 255, 255, 0.05);
+        }
+        .computer-board .square:hover {
+            background-color: rgba(0, 191, 255, 0.3);
+            cursor: pointer;
+        }
+        .ship {
+            background-color: #778da9;
+        }
+        .hit {
+            background-color: transparent;
+        }
+        .hit::after {
+            font-family: "Font Awesome 6 Free";
+            content: "\f13d"; /* fa-explosion */
+            font-weight: 900;
+            color: #ff4d4d;
+            position: absolute;
+            font-size: 1.5rem;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            animation: hit-animation 0.5s ease-out;
+        }
+        .miss {
+            background-color: transparent;
+        }
+        .miss::after {
+            font-family: "Font Awesome 6 Free";
+            content: "\f043"; /* fa-tint (droplet) */
+            font-weight: 900;
+            color: #00bfff;
+            position: absolute;
+            font-size: 1.2rem;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            opacity: 0.7;
+            animation: miss-animation 0.5s ease-out;
+        }
+        @keyframes hit-animation {
+            0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
+            100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+        }
+        @keyframes miss-animation {
+            0% { transform: translate(-50%, -70%); opacity: 0; }
+            100% { transform: translate(-50%, -50%); opacity: 0.7; }
+        }
+        .sunk {
+            background-color: #415a77 !important;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-4">
+
+    <div id="game-container" class="w-full max-w-7xl mx-auto flex flex-col items-center">
+        <h1 class="text-4xl md:text-5xl font-bold text-center mb-4 text-cyan-300 tracking-widest">BATALHA NAVAL</h1>
+        
+        <div class="flex items-center space-x-6 mb-6 bg-black bg-opacity-30 p-3 rounded-lg">
+            <h2 id="turn-indicator" class="text-xl font-semibold text-white"></h2>
+            <button id="reset-button" class="px-5 py-2 bg-cyan-600 text-white font-bold rounded-lg shadow-md hover:bg-cyan-700 transition">Novo Jogo</button>
+        </div>
+
+        <div class="flex flex-col md:flex-row gap-8 lg:gap-16 justify-center">
+            <!-- Tabuleiro do Jogador -->
+            <div class="flex flex-col items-center">
+                <h3 class="text-2xl font-semibold mb-3">Sua Frota</h3>
+                <div id="player-board" class="board player-board"></div>
+            </div>
+
+            <!-- Tabuleiro do Computador -->
+            <div class="flex flex-col items-center">
+                <h3 class="text-2xl font-semibold mb-3">Radar do Inimigo</h3>
+                <div id="computer-board" class="board computer-board"></div>
+            </div>
+        </div>
+        
+        <div id="info-panel" class="mt-6 text-center">
+             <p class="text-lg">Navios inimigos restantes: <span id="ships-left">5</span></p>
+        </div>
+
+    </div>
+    
+     <!-- Modal de Fim de Jogo -->
+    <div id="game-over-modal" class="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center hidden">
+        <div class="bg-gray-800 p-8 rounded-lg text-center shadow-2xl border-2 border-cyan-500">
+            <h2 id="game-over-title" class="text-4xl font-bold mb-4"></h2>
+            <p id="game-over-message" class="text-lg mb-6"></p>
+            <button id="play-again-button" class="px-8 py-4 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition-transform transform hover:scale-105">Jogar Novamente</button>
+        </div>
+    </div>
+
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const playerBoardEl = document.getElementById('player-board');
+            const computerBoardEl = document.getElementById('computer-board');
+            const turnIndicatorEl = document.getElementById('turn-indicator');
+            const shipsLeftEl = document.getElementById('ships-left');
+            const resetButton = document.getElementById('reset-button');
+            const playAgainButton = document.getElementById('play-again-button');
+            const gameOverModal = document.getElementById('game-over-modal');
+            const gameOverTitle = document.getElementById('game-over-title');
+            
+            const BOARD_SIZE = 10;
+            const SHIPS = [
+                { name: 'Porta-aviões', length: 5 },
+                { name: 'Encouraçado', length: 4 },
+                { name: 'Cruzador', length: 3 },
+                { name: 'Submarino', length: 3 },
+                { name: 'Destróier', length: 2 }
+            ];
+
+            let playerGrid = [];
+            let computerGrid = [];
+            let playerShips = [];
+            let computerShips = [];
+            let isPlayerTurn = true;
+            let gameOver = false;
+
+            // Função para criar uma matriz (grid 2D)
+            function createMatrix(rows, cols, fill) {
+                return Array.from({ length: rows }, () => Array(cols).fill(fill));
+            }
+
+            function createGridUI(gridEl) {
+                gridEl.innerHTML = '';
+                for (let row = 0; row < BOARD_SIZE; row++) {
+                    for (let col = 0; col < BOARD_SIZE; col++) {
+                        const square = document.createElement('div');
+                        square.classList.add('square');
+                        square.dataset.row = row;
+                        square.dataset.col = col;
+                        gridEl.appendChild(square);
+                    }
+                }
+            }
+            
+            function initializeGame() {
+                playerGrid = createMatrix(BOARD_SIZE, BOARD_SIZE, null);
+                computerGrid = createMatrix(BOARD_SIZE, BOARD_SIZE, null);
+                
+                createGridUI(playerBoardEl);
+                createGridUI(computerBoardEl);
+                
+                playerShips = placeShipsRandomly(playerGrid);
+                computerShips = placeShipsRandomly(computerGrid);
+
+                renderShips(playerBoardEl, playerGrid);
+
+                isPlayerTurn = true;
+                gameOver = false;
+                turnIndicatorEl.textContent = 'Seu turno. Ataque!';
+                shipsLeftEl.textContent = SHIPS.length;
+                gameOverModal.classList.add('hidden');
+                
+                computerBoardEl.addEventListener('click', handlePlayerAttack);
+            }
+
+            function placeShipsRandomly(grid) {
+                const placedShips = [];
+                SHIPS.forEach(ship => {
+                    let placed = false;
+                    while (!placed) {
+                        const isHorizontal = Math.random() < 0.5;
+                        const startRow = Math.floor(Math.random() * (isHorizontal ? BOARD_SIZE : BOARD_SIZE - ship.length + 1));
+                        const startCol = Math.floor(Math.random() * (isHorizontal ? BOARD_SIZE - ship.length + 1 : BOARD_SIZE));
+                        
+                        let canPlace = true;
+                        const shipSquares = [];
+                        for (let i = 0; i < ship.length; i++) {
+                            const row = isHorizontal ? startRow : startRow + i;
+                            const col = isHorizontal ? startCol + i : startCol;
+                            if (grid[row][col] !== null) {
+                                canPlace = false;
+                                break;
+                            }
+                            shipSquares.push({ row, col });
+                        }
+                        
+                        if (canPlace) {
+                            shipSquares.forEach(({ row, col }) => grid[row][col] = ship.name);
+                            placedShips.push({ name: ship.name, squares: shipSquares, sunk: false });
+                            placed = true;
+                        }
+                    }
+                });
+                return placedShips;
+            }
+            
+            function renderShips(gridEl, grid) {
+                 for (let row = 0; row < BOARD_SIZE; row++) {
+                     for(let col = 0; col < BOARD_SIZE; col++) {
+                        if(grid[row][col] !== null && grid[row][col] !== 'hit' && grid[row][col] !== 'miss') {
+                            const square = gridEl.querySelector(`[data-row='${row}'][data-col='${col}']`);
+                            square.classList.add('ship');
+                        }
+                     }
+                 }
+            }
+            
+            function handlePlayerAttack(e) {
+                if (!isPlayerTurn || gameOver) return;
+                const square = e.target;
+                if (!square.classList.contains('square')) return;
+                
+                const row = parseInt(square.dataset.row);
+                const col = parseInt(square.dataset.col);
+                if (computerGrid[row][col] === 'hit' || computerGrid[row][col] === 'miss') return;
+
+                if (computerGrid[row][col] !== null) { // Acerto
+                    square.classList.add('hit');
+                    const shipName = computerGrid[row][col];
+                    computerGrid[row][col] = 'hit';
+                    checkSunk(shipName, computerShips, 'computer');
+                } else { // Erro
+                    square.classList.add('miss');
+                    computerGrid[row][col] = 'miss';
+                }
+                
+                isPlayerTurn = false;
+                checkGameOver();
+                if (!gameOver) {
+                    turnIndicatorEl.textContent = 'Turno do computador...';
+                    setTimeout(computerAttack, 1500);
+                }
+            }
+
+            function computerAttack() {
+                if (gameOver) return;
+                let attacked = false;
+                while(!attacked) {
+                    const row = Math.floor(Math.random() * BOARD_SIZE);
+                    const col = Math.floor(Math.random() * BOARD_SIZE);
+                    
+                    if (playerGrid[row][col] !== 'hit' && playerGrid[row][col] !== 'miss') {
+                        const square = playerBoardEl.querySelector(`[data-row='${row}'][data-col='${col}']`);
+                        if (playerGrid[row][col] !== null) { // Acerto
+                            square.classList.add('hit');
+                            const shipName = playerGrid[row][col];
+                            playerGrid[row][col] = 'hit';
+                            checkSunk(shipName, playerShips, 'player');
+                        } else { // Erro
+                            square.classList.add('miss');
+                            playerGrid[row][col] = 'miss';
+                        }
+                        attacked = true;
+                    }
+                }
+                
+                isPlayerTurn = true;
+                checkGameOver();
+                if(!gameOver) {
+                    turnIndicatorEl.textContent = 'Seu turno. Ataque!';
+                }
+            }
+
+            function checkSunk(shipName, ships, owner) {
+                const ship = ships.find(s => s.name === shipName);
+                if (!ship) return;
+                
+                const allHit = ship.squares.every(({row, col}) => (owner === 'player' ? playerGrid[row][col] : computerGrid[row][col]) === 'hit');
+                
+                if (allHit) {
+                    ship.sunk = true;
+                    const boardEl = owner === 'player' ? playerBoardEl : computerBoardEl;
+                    ship.squares.forEach(({row, col}) => {
+                         const square = boardEl.querySelector(`[data-row='${row}'][data-col='${col}']`);
+                         square.classList.add('sunk');
+                    });
+
+                    if (owner === 'computer') {
+                         const shipsRemaining = computerShips.filter(s => !s.sunk).length;
+                         shipsLeftEl.textContent = shipsRemaining;
+                    }
+                }
+            }
+
+            function checkGameOver() {
+                const playerLost = playerShips.every(s => s.sunk);
+                const computerLost = computerShips.every(s => s.sunk);
+                
+                if (playerLost || computerLost) {
+                    gameOver = true;
+                    computerBoardEl.removeEventListener('click', handlePlayerAttack);
+                    turnIndicatorEl.textContent = 'FIM DE JOGO!';
+                    
+                    gameOverTitle.textContent = playerLost ? 'DERROTA!' : 'VITÓRIA!';
+                    const gameOverMessage = document.getElementById('game-over-message');
+                    gameOverMessage.textContent = playerLost ? 'Sua frota foi destruída.' : 'Você destruiu a frota inimiga!';
+                    gameOverModal.classList.remove('hidden');
+                }
+            }
+            
+            resetButton.addEventListener('click', initializeGame);
+            playAgainButton.addEventListener('click', initializeGame);
+
+            // Inicia o jogo pela primeira vez
+            initializeGame();
+        });
+    </script>
+</body>
+</html>
